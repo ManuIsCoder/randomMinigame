@@ -51,16 +51,20 @@ def run(screen, clock, W, H) -> bool:
         vasos = [{'x':        float(pos_x[i]),
                   'y':        float(y),
                   'target_x': float(pos_x[i]),
-                  'offset_y': 0.0}
+                  'offset_y': 0.0,
+                  'tiene_pelota': False}
                  for i in range(3)]
-        return vasos, random.randint(0, 2)
+        # Marcar cuál tiene la pelota por referencia directa al objeto
+        idx = random.randint(0, 2)
+        vasos[idx]['tiene_pelota'] = True
+        return vasos, vasos[idx]   # retornamos lista y referencia al vaso con pelota
 
-    vasos, pelota_idx = nueva_ronda()
-    speed             = SPEED_INICIAL
-    fase              = FASE_LEVANTAR
-    fase_timer        = 0.0
-    movimientos       = []
-    elegido_idx       = None
+    vasos, vaso_pelota = nueva_ronda()
+    speed              = SPEED_INICIAL
+    fase               = FASE_LEVANTAR
+    fase_timer         = 0.0
+    movimientos        = []
+    vaso_elegido       = None
     resultado_correcto = None
 
     def generar_movimientos(n):
@@ -69,13 +73,11 @@ def run(screen, clock, W, H) -> bool:
 
     def pelota_screen_pos():
         """
-        Posición de la pelota siguiendo al vaso que la contiene,
-        incluyendo su offset_y actual (animación levantar/bajar).
+        Lee directamente del objeto vaso que tiene la pelota.
+        Como es una referencia al dict, siempre tiene la x y offset_y actuales.
         """
-        v  = vasos[pelota_idx]
-        px = v['x'] + VASO_W // 2 - PELOTA_W // 2
-        # La pelota queda en la base del vaso, siguiendo su offset_y
-        py = v['y'] + v['offset_y'] + VASO_H - PELOTA_W - 4
+        px = vaso_pelota['x'] + VASO_W // 2 - PELOTA_W // 2
+        py = vaso_pelota['y'] + VASO_H - PELOTA_W - 4
         return px, py
 
     while True:
@@ -90,22 +92,21 @@ def run(screen, clock, W, H) -> bool:
 
             if event.type == pygame.MOUSEBUTTONDOWN and fase == FASE_ELEGIR:
                 mx, my = event.pos
-                for i, v in enumerate(vasos):
+                for v in vasos:
                     if pygame.Rect(v['x'], v['y'], VASO_W, VASO_H).collidepoint(mx, my):
-                        elegido_idx        = i
-                        resultado_correcto = (elegido_idx == pelota_idx)
+                        vaso_elegido       = v
+                        resultado_correcto = v['tiene_pelota']
                         fase               = FASE_REVELAR
                         break
 
         # ── Update ────────────────────────────────────────────────
 
         if fase == FASE_LEVANTAR:
-            v = vasos[pelota_idx]
-            v['offset_y'] -= LEVANTAR_VEL * dt
-            if v['offset_y'] <= -LEVANTAR_DIST:
-                v['offset_y'] = -LEVANTAR_DIST
-                fase           = FASE_MOSTRAR
-                fase_timer     = 1.4
+            vaso_pelota['offset_y'] -= LEVANTAR_VEL * dt
+            if vaso_pelota['offset_y'] <= -LEVANTAR_DIST:
+                vaso_pelota['offset_y'] = -LEVANTAR_DIST
+                fase                    = FASE_MOSTRAR
+                fase_timer              = 1.4
 
         elif fase == FASE_MOSTRAR:
             fase_timer -= dt
@@ -113,13 +114,12 @@ def run(screen, clock, W, H) -> bool:
                 fase = FASE_BAJAR
 
         elif fase == FASE_BAJAR:
-            v = vasos[pelota_idx]
-            v['offset_y'] += LEVANTAR_VEL * dt
-            if v['offset_y'] >= 0:
-                v['offset_y'] = 0.0
-                n_mov          = 4 + ronda * 2
-                movimientos    = generar_movimientos(n_mov)
-                fase           = FASE_MEZCLAR
+            vaso_pelota['offset_y'] += LEVANTAR_VEL * dt
+            if vaso_pelota['offset_y'] >= 0:
+                vaso_pelota['offset_y'] = 0.0
+                n_mov                   = 4 + ronda * 2
+                movimientos             = generar_movimientos(n_mov)
+                fase                    = FASE_MEZCLAR
 
         elif fase == FASE_MEZCLAR:
             todos_llegaron = True
@@ -135,14 +135,11 @@ def run(screen, clock, W, H) -> bool:
             if todos_llegaron:
                 if movimientos:
                     i, j = movimientos.pop(0)
-                    # Intercambiar target_x entre los dos vasos
+                    # Intercambiar target_x entre los dos vasos por índice de lista
                     vasos[i]['target_x'], vasos[j]['target_x'] = \
                         vasos[j]['target_x'], vasos[i]['target_x']
-                    # Seguir la pelota
-                    if pelota_idx == i:
-                        pelota_idx = j
-                    elif pelota_idx == j:
-                        pelota_idx = i
+                    # NO hay que actualizar vaso_pelota — sigue siendo
+                    # la misma referencia al mismo dict, que se mueve solo
                 else:
                     fase = FASE_ELEGIR
 
@@ -172,29 +169,38 @@ def run(screen, clock, W, H) -> bool:
 
                 for v in vasos:
                     v['offset_y'] = 0.0
-                speed             += SPEED_INCREMENTO
-                vasos, pelota_idx  = nueva_ronda()
-                elegido_idx        = None
-                resultado_correcto = None
-                fase               = FASE_LEVANTAR
+                speed               += SPEED_INCREMENTO
+                vasos, vaso_pelota   = nueva_ronda()
+                vaso_elegido         = None
+                resultado_correcto   = None
+                fase                 = FASE_LEVANTAR
 
         # ── Draw ──────────────────────────────────────────────────
         runner.clear(screen)
 
-        # Pelota — visible cuando el vaso está levantado
+        # Pelota visible cuando el vaso que la tiene está levantado
         if fase in (FASE_LEVANTAR, FASE_MOSTRAR, FASE_BAJAR,
                     FASE_REVELAR, FASE_RESULTADO):
             px, py = pelota_screen_pos()
-            screen.blit(pelota_img, (px, py))
+            screen.blit(pelota_img, (int(px), int(py)))
 
-        for i, v in enumerate(vasos):
+        for v in vasos:
             draw_y = int(v['y'] + v['offset_y'])
             screen.blit(vaso_img, (int(v['x']), draw_y))
 
-            if fase == FASE_RESULTADO and i == elegido_idx:
+            # Resaltar vaso elegido en resultado
+            if fase == FASE_RESULTADO and v is vaso_elegido:
                 color = (80, 220, 80) if resultado_correcto else (220, 80, 80)
                 pygame.draw.rect(
                     screen, color,
+                    pygame.Rect(int(v['x']), draw_y, VASO_W, VASO_H),
+                    3, border_radius=6
+                )
+
+            # Resaltar vaso con pelota en resultado (para que el jugador vea dónde era)
+            if fase == FASE_RESULTADO and v['tiene_pelota'] and not resultado_correcto:
+                pygame.draw.rect(
+                    screen, (80, 220, 80),
                     pygame.Rect(int(v['x']), draw_y, VASO_W, VASO_H),
                     3, border_radius=6
                 )
