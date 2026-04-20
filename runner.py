@@ -285,3 +285,195 @@ def play_result(screen, clock, W, H, gano: bool):
         _animar_victoria(screen, clock, W, H)
     else:
         _animar_derrota(screen, clock, W, H)
+
+
+# ── Ruleta de dificultad ───────────────────────────────────────────────────────
+
+def spin_ruleta(screen, clock, W, H):
+    """
+    Muestra una ruleta animada con 6 dificultades.
+    Orden de sectores (sentido horario): 1, 6, 2, 5, 3, 4.
+    La paleta/puntero está a la IZQUIERDA de la rueda.
+    Retorna el número de dificultad (1–6) seleccionado.
+    """
+    # ── Sectores y colores ──────────────────────────────────────────────────
+    SECTORES   = [1, 6, 2, 5, 3, 4]          # orden horario
+    N          = len(SECTORES)
+    DEG_SEC    = 360 / N                      # 60° por sector
+
+    # Colores del verde (fácil) al rojo (difícil)
+    COLORS = {
+        1: (50,  210,  80),   # verde brillante
+        2: (130, 210,  50),   # verde-lima
+        3: (220, 210,  30),   # amarillo
+        4: (255, 150,  20),   # naranja
+        5: (255,  75,  20),   # rojo-naranja
+        6: (210,  25,  25),   # rojo intenso
+    }
+    NOMBRES = {
+        1: 'Muy Fácil',
+        2: 'Fácil',
+        3: 'Normal',
+        4: 'Difícil',
+        5: 'Muy Difícil',
+        6: 'EXTREMO',
+    }
+
+    # ── Geometría ───────────────────────────────────────────────────────────
+    radius  = min(W, H) // 3
+    cx      = W // 2 + 50           # rueda centrada/desplazada a la derecha
+    cy      = H // 2
+
+    # ── Elegir resultado y calcular ángulo de parada ─────────────────────────
+    # wheel_angle: cuántos grados ha rotado la rueda (sentido horario)
+    # Los sectores se dibujan desde (wheel_angle - 90)°, así el sector 0
+    # empieza en la parte superior cuando wheel_angle=0.
+    # La paleta apunta a 180° (izquierda), por lo que queremos que el centro
+    # del sector elegido esté en 180°:
+    #   wheel_angle - 90 + (idx + 0.5) * DEG_SEC = 180  →
+    #   wheel_angle = 270 - (idx + 0.5) * DEG_SEC
+    resultado_idx   = random.randint(0, N - 1)
+    resultado       = SECTORES[resultado_idx]
+    extra_giros     = random.randint(4, 6) * 360
+    angulo_final    = (270 - (resultado_idx + 0.5) * DEG_SEC) % 360
+    total_spin      = extra_giros + angulo_final
+
+    # ── Tipografías ─────────────────────────────────────────────────────────
+    font_titulo  = pygame.font.SysFont('monospace', 30, bold=True)
+    font_num     = pygame.font.SysFont('monospace', 34, bold=True)
+    font_result  = pygame.font.SysFont('monospace', 32, bold=True)
+    font_nombre  = pygame.font.SysFont('monospace', 22, bold=True)
+    font_hint    = pygame.font.SysFont('monospace', 18)
+
+    # ── Estado de la animación ───────────────────────────────────────────────
+    DURACION  = 3.5          # segundos girando
+    wheel_angle = 0.0
+    elapsed     = 0.0
+    spinning    = True
+    done        = False
+
+    # ── Helper: dibuja un sector de la rueda ─────────────────────────────────
+    def draw_sector(idx, angle_offset):
+        dif = SECTORES[idx]
+        a0  = math.radians(idx * DEG_SEC + angle_offset - 90)
+        a1  = math.radians((idx + 1) * DEG_SEC + angle_offset - 90)
+        steps  = 30
+        points = [(cx, cy)]
+        for s in range(steps + 1):
+            a = a0 + (a1 - a0) * s / steps
+            points.append((cx + radius * math.cos(a),
+                           cy + radius * math.sin(a)))
+
+        # Relleno del sector
+        pygame.draw.polygon(screen, COLORS[dif], points)
+        # Borde del sector
+        pygame.draw.polygon(screen, (15, 15, 15), points, 2)
+
+        # Número en el sector
+        mid_a  = math.radians((idx + 0.5) * DEG_SEC + angle_offset - 90)
+        tx = cx + radius * 0.62 * math.cos(mid_a)
+        ty = cy + radius * 0.62 * math.sin(mid_a)
+        num_surf = font_num.render(str(dif), True, (255, 255, 255))
+        # Sombra suave
+        shadow = font_num.render(str(dif), True, (0, 0, 0))
+        screen.blit(shadow, (int(tx) - num_surf.get_width() // 2 + 2,
+                             int(ty) - num_surf.get_height() // 2 + 2))
+        screen.blit(num_surf, (int(tx) - num_surf.get_width() // 2,
+                               int(ty) - num_surf.get_height() // 2))
+
+    # ── Bucle principal ───────────────────────────────────────────────────────
+    while not done:
+        dt = clock.tick(60) / 1000.0
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                exit()
+            if not spinning:
+                if event.type in (pygame.MOUSEBUTTONDOWN, pygame.KEYDOWN):
+                    done = True
+
+        # Avanzar animación con ease-out cúbico
+        if spinning:
+            elapsed += dt
+            t          = min(elapsed / DURACION, 1.0)
+            ease       = 1 - (1 - t) ** 3
+            wheel_angle = total_spin * ease
+            if t >= 1.0:
+                spinning    = False
+                wheel_angle = total_spin  # fijar exacto
+
+        # ── Fondo oscuro ─────────────────────────────────────────────────────
+        clear(screen)
+        panel = pygame.Surface((W, H), pygame.SRCALPHA)
+        panel.fill((10, 10, 20, 210))
+        screen.blit(panel, (0, 0))
+
+        # ── Título ───────────────────────────────────────────────────────────
+        titulo = font_titulo.render('¡GIRANDO LA RULETA!', True, (220, 220, 255))
+        screen.blit(titulo, (W // 2 - titulo.get_width() // 2, 32))
+
+        # ── Sombra exterior de la rueda ───────────────────────────────────────
+        pygame.draw.circle(screen, (0, 0, 0, 160), (cx + 4, cy + 4), radius + 6)
+
+        # ── Sectores ─────────────────────────────────────────────────────────
+        for i in range(N):
+            draw_sector(i, wheel_angle)
+
+        # ── Borde exterior de la rueda ────────────────────────────────────────
+        pygame.draw.circle(screen, (220, 220, 220), (cx, cy), radius, 4)
+
+        # ── Círculo central ───────────────────────────────────────────────────
+        pygame.draw.circle(screen, (30,  30,  40), (cx, cy), 22)
+        pygame.draw.circle(screen, (180, 180, 200), (cx, cy), 22, 3)
+
+        # ── Marcas exteriores cada 60° ────────────────────────────────────────
+        for i in range(N):
+            a = math.radians(i * DEG_SEC + wheel_angle - 90)
+            mx0 = cx + (radius - 1) * math.cos(a)
+            my0 = cy + (radius - 1) * math.sin(a)
+            mx1 = cx + (radius + 10) * math.cos(a)
+            my1 = cy + (radius + 10) * math.sin(a)
+            pygame.draw.line(screen, (220, 220, 220), (int(mx0), int(my0)),
+                             (int(mx1), int(my1)), 3)
+
+        # ── Paleta/puntero (IZQUIERDA) ────────────────────────────────────────
+        px   = cx - radius - 4   # punta del puntero (toca la rueda)
+        py   = cy
+        ps   = 28                 # tamaño del triángulo
+        tip  = (px, py)
+        base1 = (px - ps, py - ps // 2)
+        base2 = (px - ps, py + ps // 2)
+        # Sombra
+        sofs = 3
+        pygame.draw.polygon(screen, (0, 0, 0),
+                            [(tip[0]+sofs, tip[1]+sofs),
+                             (base1[0]+sofs, base1[1]+sofs),
+                             (base2[0]+sofs, base2[1]+sofs)])
+        # Cuerpo dorado
+        pygame.draw.polygon(screen, (255, 210, 40), [tip, base1, base2])
+        # Borde
+        pygame.draw.polygon(screen, (180, 130, 10), [tip, base1, base2], 2)
+
+        # ── Resultado ─────────────────────────────────────────────────────────
+        if not spinning:
+            col = COLORS[resultado]
+            # Recuadro del resultado
+            res_text  = f'Dificultad {resultado}  —  {NOMBRES[resultado]}'
+            res_surf  = font_result.render(res_text, True, col)
+            rw, rh    = res_surf.get_width() + 40, res_surf.get_height() + 20
+            rx        = W // 2 - rw // 2
+            ry        = H - 120
+            box = pygame.Surface((rw, rh), pygame.SRCALPHA)
+            box.fill((0, 0, 0, 170))
+            screen.blit(box, (rx, ry))
+            pygame.draw.rect(screen, col, (rx, ry, rw, rh), 3, border_radius=8)
+            screen.blit(res_surf, (rx + 20, ry + 10))
+
+            hint = font_hint.render('click o cualquier tecla para continuar',
+                                    True, (160, 160, 180))
+            screen.blit(hint, (W // 2 - hint.get_width() // 2, H - 52))
+
+        flip()
+
+    return resultado
